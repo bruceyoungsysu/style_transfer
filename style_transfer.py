@@ -17,6 +17,13 @@ class StyleTransfer:
         self.content_layer = 'conv4_2'
         self.style_layer = ['conv1_1', 'conv2_1', 'conv3_1', 'conv4_1', 'conv5_1']
 
+        # weights in calculating loss
+        self.style_layers_w = [0.5, 1.0, 1.5, 3.0, 4.0]
+        self.conten_w = 0.01
+        self.style_w = 1
+
+        self.lr = 2.0
+
     def load_input(self):
         self.input_img = tf.get_variable('input_img', shape=(1, self.image_width, self.image_height, 3),
                                          dtype=tf.float32, initializer=tf.zeros_initializer())
@@ -46,13 +53,25 @@ class StyleTransfer:
         new_F = tf.reshape(F, (M, N))
         return tf.matmul(tf.transpose(new_F), new_F)
 
+    def single_style_loss(self, a, g):
+        """
+        :param a: gram matrix of style image
+        :param g: gram matrix of generated image
+        :return:
+        """
+        N = g.shape[3]
+        M = g.shape[0] * g.shape[1]
+        G = self.gram_matrix(a, N, M)
+        A = self.gram_matrix(g, N, M)
+        return (1/(4*N**2*M**2))*tf.reduce_sum(tf.matmul(G-A,G-A))
+
     def style_loss(self, As):
         """
-        :param A: feature representation of style layer
-        :param G: feature representation of generated layer
+        :param As: feature representation of style layer
         :return: style loss function
         """
-        pass
+        loss = [self.single_style_loss(As[i], getattr(self.vgg, self.style_layer[i]) ) for i in range(len(As))]
+        self.style_loss = sum([self.style_w[i]]*loss[i] for i in range(len(As)))
 
     def total_loss(self):
         with tf.name_scope('loss') as scope:
@@ -60,17 +79,18 @@ class StyleTransfer:
                 setattr(self.input_img, self.content_image)
                 conten_gen_img = getattr(self.vgg, self.content_layer)
                 conten_conten_img = sess.run(conten_gen_img)
-                self.content_loss = self.content_loss(conten_conten_img, conten_gen_img)
+                self.content_loss(conten_conten_img, conten_gen_img)
 
             with tf.Session() as sess:
                 setattr(self.input_img, self.style_image)
                 layers_style = [sess.run(getattr(self.vgg, style_layer)) for style_layer in self.style_layer]
-                self.style_losses = self.style_loss(layers_style)
+                self.style_loss(layers_style)
 
-            total_loss = None
+            self.total_loss = self.conten_w*self.content_loss + self.style_w*self.style_loss
 
     def optimize(self):
-        pass
+        with tf.name_scope('optimize') as scope:
+            pass
 
     def build(self):
         pass
