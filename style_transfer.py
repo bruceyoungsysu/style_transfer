@@ -2,9 +2,19 @@ from load_vgg import VGG
 import numpy as np
 import tensorflow as tf
 import os
+from PIL import Image, ImageOps
 
-def resize_image(image):
+
+def resize_image(image, width, height):
+    img = Image.open(image)
+    img = ImageOps.fit(img, (width, height), Image.ANTIALIAS)
+    img = np.asarray(img, np.float32)
+    return img
+
+
+def add_noise(img):
     pass
+
 
 class StyleTransfer:
     def __init__(self, content_image, style_image, image_width, image_height):
@@ -12,6 +22,7 @@ class StyleTransfer:
         self.image_height = image_height
         self.content_image = resize_image(content_image)
         self.style_image = resize_image(style_image)
+        self.initial_image = self.content_image
 
         # create CNN variables
         self.content_layer = 'conv4_2'
@@ -22,7 +33,10 @@ class StyleTransfer:
         self.conten_w = 0.01
         self.style_w = 1
 
+        # training parameters
         self.lr = 2.0
+        self.gstep = tf.Variable(0, False, name='gstep')
+        self.skip_step = 1
 
     def load_input(self):
         self.input_img = tf.get_variable('input_img', shape=(1, self.image_width, self.image_height, 3),
@@ -90,10 +104,27 @@ class StyleTransfer:
 
     def optimize(self):
         with tf.name_scope('optimize') as scope:
-            pass
+            self.opt = tf.train.AdamOptimizer(learning_rate=self.lr).minimize(self.total_loss, global_step=self.gstep)
 
     def build(self):
-        pass
+        self.load_input()
+        self.load_vgg()
+        self.total_loss()
+        self.optimize()
 
-    def train(self):
-        pass
+    def train(self, iter_num):
+        with tf.Session() as sess:
+            sess.run(tf.global_variables_initializer())
+            sess.run(setattr(self.input_img.assign(self.initial_image)))
+
+            initial_step = self.gstep.eval()
+            for index in range(initial_step, iter_num):
+                sess.run(self.opt)
+                gen_image, total_loss = sess.run([self.input_img, self.total_loss])
+                gen_image += self.vgg.mean_pixels
+                print('Step {}\n   Sum: {:5.1f}'.format(index + 1, np.sum(gen_image)))
+                print('   Loss: {:5.1f}'.format(total_loss))
+
+
+if __name__ == '__main__':
+    pass
