@@ -9,7 +9,7 @@ def resize_image(image, width, height):
     img = Image.open(image)
     img = ImageOps.fit(img, (width, height), Image.ANTIALIAS)
     img = np.asarray(img, np.float32)
-    return img
+    return np.expand_dims(img,0)  # add to the origin dimension of image
 
 
 def add_noise(img):
@@ -20,8 +20,8 @@ class StyleTransfer:
     def __init__(self, content_image, style_image, image_width, image_height):
         self.image_width = image_width
         self.image_height = image_height
-        self.content_image = resize_image(content_image)
-        self.style_image = resize_image(style_image)
+        self.content_image = resize_image(content_image, image_width, image_height)
+        self.style_image = resize_image(style_image, image_width, image_height)
         self.initial_image = self.content_image
 
         # create CNN variables
@@ -39,7 +39,7 @@ class StyleTransfer:
         self.skip_step = 1
 
     def load_input(self):
-        self.input_img = tf.get_variable('input_img', shape=(1, self.image_width, self.image_height, 3),
+        self.input_img = tf.get_variable('input_img', shape=(1, self.image_height, self.image_width, 3),
                                          dtype=tf.float32, initializer=tf.zeros_initializer())
 
     def load_vgg(self):
@@ -47,7 +47,7 @@ class StyleTransfer:
         self.vgg = VGG(self.input_img)
         self.vgg.build()
         self.content_image -= self.vgg.mean_pixels
-        self.style_iamge -= self.vgg.mean_pixels
+        self.style_image -= self.vgg.mean_pixels
 
     def content_loss(self, P, F):
         """
@@ -90,13 +90,13 @@ class StyleTransfer:
     def total_loss(self):
         with tf.name_scope('loss') as scope:
             with tf.Session() as sess:
-                setattr(self.input_img, self.content_image)
+                sess.run(self.input_img.assign(self.content_image))
                 conten_gen_img = getattr(self.vgg, self.content_layer)
                 conten_conten_img = sess.run(conten_gen_img)
                 self.content_loss(conten_conten_img, conten_gen_img)
 
             with tf.Session() as sess:
-                setattr(self.input_img, self.style_image)
+                sess.run(self.input_img.assign(self.style_image))
                 layers_style = [sess.run(getattr(self.vgg, style_layer)) for style_layer in self.style_layer]
                 self.style_loss(layers_style)
 
@@ -115,7 +115,7 @@ class StyleTransfer:
     def train(self, iter_num):
         with tf.Session() as sess:
             sess.run(tf.global_variables_initializer())
-            sess.run(setattr(self.input_img.assign(self.initial_image)))
+            sess.run(self.input_img.assign(self.initial_image))
 
             initial_step = self.gstep.eval()
             for index in range(initial_step, iter_num):
@@ -127,4 +127,9 @@ class StyleTransfer:
 
 
 if __name__ == '__main__':
-    pass
+    img = resize_image('./data/deadpool.jpg', 333, 250)
+    # print(img.shape)
+    style_trans = StyleTransfer(content_image='./data/deadpool.jpg',
+                                style_image = './data/guernica.jpg',
+                                image_width=333, image_height=250)
+    style_trans.build()
