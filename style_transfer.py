@@ -3,6 +3,7 @@ import numpy as np
 import tensorflow as tf
 import os
 from PIL import Image, ImageOps
+import scipy
 
 
 def resize_image(image, width, height):
@@ -12,8 +13,10 @@ def resize_image(image, width, height):
     return np.expand_dims(img,0)  # add to the origin dimension of image
 
 
-def add_noise(img):
-    pass
+def save_image(filepath, image):
+    img = image[0]
+    img = np.clip(img, 1, 255)   # clip or normalization?
+    scipy.misc.imsave(filepath, img)
 
 
 class StyleTransfer:
@@ -36,7 +39,7 @@ class StyleTransfer:
         # training parameters
         self.lr = 2.0
         self.gstep = tf.Variable(0, False, name='gstep')
-        self.skip_step = 1
+        self.skip_step = 10
 
     def load_input(self):
         self.input_img = tf.get_variable('input_img', shape=(1, self.image_height, self.image_width, 3),
@@ -73,19 +76,20 @@ class StyleTransfer:
         :param g: gram matrix of generated image
         :return:
         """
-        N = g.shape[3]
-        M = g.shape[0] * g.shape[1]
+        N = a.shape[3]
+        M = a.shape[1] * a.shape[2]
         G = self.gram_matrix(a, N, M)
         A = self.gram_matrix(g, N, M)
-        return (1/(4*N**2*M**2))*tf.reduce_sum(tf.matmul(G-A,G-A))
+        return (1/(2*N*M)**2)*tf.reduce_sum((G-A)**2)
 
     def style_loss(self, As):
         """
         :param As: feature representation of style layer
         :return: style loss function
         """
-        loss = [self.single_style_loss(As[i], getattr(self.vgg, self.style_layer[i]) ) for i in range(len(As))]
-        self.style_loss = sum([self.style_w[i]]*loss[i] for i in range(len(As)))
+        loss = [self.single_style_loss(As[i], getattr(self.vgg, self.style_layer[i])) for i in range(len(As))]
+        self.style_loss = sum([self.style_layers_w[i]*loss[i] for i in range(len(As))])
+        print(self.style_loss)
 
     def total_loss(self):
         with tf.name_scope('loss') as scope:
@@ -93,12 +97,12 @@ class StyleTransfer:
                 sess.run(self.input_img.assign(self.content_image))
                 conten_gen_img = getattr(self.vgg, self.content_layer)
                 conten_conten_img = sess.run(conten_gen_img)
-                self.content_loss(conten_conten_img, conten_gen_img)
+            self.content_loss(conten_conten_img, conten_gen_img)
 
             with tf.Session() as sess:
                 sess.run(self.input_img.assign(self.style_image))
                 layers_style = [sess.run(getattr(self.vgg, style_layer)) for style_layer in self.style_layer]
-                self.style_loss(layers_style)
+            self.style_loss(layers_style)
 
             self.total_loss = self.conten_w*self.content_loss + self.style_w*self.style_loss
 
@@ -122,8 +126,13 @@ class StyleTransfer:
                 sess.run(self.opt)
                 gen_image, total_loss = sess.run([self.input_img, self.total_loss])
                 gen_image += self.vgg.mean_pixels
-                print('Step {}\n   Sum: {:5.1f}'.format(index + 1, np.sum(gen_image)))
-                print('   Loss: {:5.1f}'.format(total_loss))
+                if index % self.skip_step == 0:
+                    print('Step {}\n   Sum: {:5.1f}'.format(index + 1, np.sum(gen_image)))
+                    print('   Loss: {:5.1f}'.format(total_loss))
+                    if not os.path.exists('./output'):
+                        os.mkdir('./output')
+                    filepath = './output/%d.png' %index
+                    save_image(filepath, gen_image)
 
 
 if __name__ == '__main__':
@@ -133,3 +142,4 @@ if __name__ == '__main__':
                                 style_image = './data/guernica.jpg',
                                 image_width=333, image_height=250)
     style_trans.build()
+    style_trans.train(100)
